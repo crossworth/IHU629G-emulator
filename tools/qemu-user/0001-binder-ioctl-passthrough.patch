@@ -1,0 +1,36 @@
+Binder ioctl passthrough for qemu linux-user.
+
+The Android binder driver accepts 32-bit processes natively:
+drivers/android/binder.c registers .compat_ioctl = compat_ptr_ioctl, and
+the binder_uapi structs use explicit fixed-width types (binder_uintptr_t
+is __u64), so BINDER_* ioctl numbers and layouts are IDENTICAL for 32 and
+64-bit callers. qemu-user's do_ioctl whitelist rejects them with
+-ENOTTY/-ENOSYS before ever reaching the kernel, which kills every 32-bit
+Android process that opens binder (ProcessState aborts).
+
+This patch forwards every ioctl whose type is 'b' straight to the host
+kernel with the guest's raw pointer. It is safe because qemu-user shares
+the address space with the translated process: the pointer the guest
+passed IS a valid host pointer, and the kernel side handles the 32-bit
+compat layout itself via compat_ptr_ioctl.
+
+IHU629G-emulator: revives the OEM 32-bit stack (audioserver,
+mediaserver, cameraserver, MTK HALs) under qemu-arm-static on hosts
+without AArch32.
+--- a/linux-user/syscall.c
++++ b/linux-user/syscall.c
+@@ -5574,6 +5574,15 @@ static abi_long do_ioctl(int fd, int cmd, abi_long arg)
+     int target_size;
+     void *argptr;
+
++    /* Android binder ioctls: type 'b'. Layouts are 32/64-identical
++     * (fixed-width uapi types) and the kernel handles 32-bit callers
++     * via compat_ptr_ioctl. Pass the guest pointer straight through:
++     * qemu-user shares the address space, so it is a valid host pointer. */
++    if (_IOC_TYPE(cmd) == 'b') {
++        return get_errno(safe_ioctl(fd, cmd, (void *)(uintptr_t)arg));
++    }
++
+     ie = ioctl_entries;
+     for(;;) {
+         if (ie->target_cmd == 0) {

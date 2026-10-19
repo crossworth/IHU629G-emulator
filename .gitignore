@@ -1,0 +1,13 @@
+# Proprietary inputs and private build state — never committed
+firmware/
+dump/
+
+# scratch + artifacts — regenerable
+work/
+out/
+
+# logs
+logs/
+
+# macOS
+.DS_Store
